@@ -55,7 +55,6 @@ const { developmentChains } = require("../helper-hardhat-config")
         })
 
         it("Successfully unstakes and transfers rewards", async () => {
-          // Mocking the passage of time
           await network.provider.send("evm_increaseTime", [60 * 60 * 24 * 7])
 
           const stakerBalanceBefore = await ethers.provider.getBalance(
