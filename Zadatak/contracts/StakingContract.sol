@@ -51,8 +51,9 @@ contract StakingContract is ERC20, ERC20Burnable, Pausable, Ownable {
   }
 
   function stake(uint256 stakingPeriod) external payable {
-    if (stakingPeriod <= MIN_STAKING_PERIOD)
-      revert(StakingPeriodLowerThanMinimum());
+    if (stakingPeriod <= MIN_STAKING_PERIOD) {
+      revert StakingPeriodLowerThanMinimum();
+    }
 
     uint256 ethUSDPrice = getETHUSDPrice();
     uint256 reward = ethUSDPrice.mul(msg.value).div(1e8);
@@ -68,7 +69,7 @@ contract StakingContract is ERC20, ERC20Burnable, Pausable, Ownable {
   function unstake() external onlyStaker {
     Stake memory staker = stakers[msg.sender];
     if (block.timestamp >= staker.startTime.add(MIN_STAKING_PERIOD)) {
-      revert(StakingPeriodNotPassedError());
+      revert StakingPeriodNotPassedError();
     }
 
     payable(msg.sender).transfer(staker.amount);
