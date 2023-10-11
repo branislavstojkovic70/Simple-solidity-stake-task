@@ -3,7 +3,7 @@ const { deployments, ethers, waffle } = require("hardhat")
 const {
   developmentChains,
   getNamedAccounts,
-} = require("../helper-hardhat-config")
+} = require("../helper-hardhat-config.js")
 const { parseEther } = ethers.utils
 
 !developmentChains.includes(network.name)
@@ -129,7 +129,7 @@ const { parseEther } = ethers.utils
       describe("getBalance", function () {
         it("Returns the correct ETH balance for a user", async () => {
           const stakerBalance = await stakingContract.getBalance()
-          assert.equal(stakerBalance, 0) // Deployer doesn't have ETH in this context
+          assert.equal(stakerBalance, 0)
         })
       })
 
