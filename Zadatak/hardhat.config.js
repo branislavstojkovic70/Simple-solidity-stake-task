@@ -26,7 +26,7 @@ module.exports = {
     },
   },
   solidity: {
-    compilers: [{ version: "0.8.19" }, { version: "0.6.6" }],
+    compilers: [{ version: "0.8.7" }, { version: "0.6.6" }],
     settings: {
       optimizer: {
         enabled: true, // Default: false
@@ -43,7 +43,7 @@ module.exports = {
     noColors: true,
     currency: "USD",
     coinmarketcap: COINMARKETCAP_API_KEY,
-    token: "MATIC",
+    token: "ETH",
   },
   namedAccounts: {
     deployer: {
