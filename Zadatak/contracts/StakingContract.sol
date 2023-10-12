@@ -5,8 +5,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "./PriceConverter.sol";
 
-// 0x694AA1769357215DE4FAC081bf1f309aDC325306
 error StakingPeriodLowerThanMinimum();
 error StakingPeriodNotPassedError();
 error NotOwner();
@@ -20,6 +20,7 @@ error NotEnoughStaked();
 
 contract StakingContract is ERC20 {
   using SafeMath for uint256;
+  using PriceConverter for uint256;
   using EnumerableSet for EnumerableSet.AddressSet;
 
   AggregatorV3Interface private s_priceFeed;
@@ -46,20 +47,17 @@ contract StakingContract is ERC20 {
     ERC20("MVPWorkShop", "MVP")
   {
     _mint(address(this), initialSupply);
-    _mint(msg.sender, initialSupply);
-
     s_priceFeed = AggregatorV3Interface(_priceFeed);
   }
 
   function stake(uint256 stakingPeriod) public payable {
-    stakingPeriod = calculateInSeconds(stakingPeriod);
+    stakingPeriod = stakingPeriod.mul(3600); //transfer to seconds
+
     if (stakingPeriod < MIN_STAKING_PERIOD)
       revert StakingPeriodLowerThanMinimum();
 
-    uint256 ethUSDPrice = getETHUSDPrice();
-    uint256 reward = ethUSDPrice.mul(msg.value).div(1e8);
+    uint256 reward = msg.value.getConversionRate(s_priceFeed);
 
-    _transfer(msg.sender, address(this), msg.value);
     _transfer(address(this), msg.sender, reward);
 
     stakers[msg.sender] = Stake(msg.value, block.timestamp);
@@ -72,6 +70,7 @@ contract StakingContract is ERC20 {
     Stake memory staker = stakers[msg.sender];
     if (block.timestamp < staker.startTime.add(MIN_STAKING_PERIOD))
       revert StakingPeriodNotPassedError();
+
     if (unstakeAmount < staker.amount) revert NotEnoughStaked();
 
     _transfer(address(this), msg.sender, unstakeAmount);
@@ -81,15 +80,6 @@ contract StakingContract is ERC20 {
     delete stakers[msg.sender];
 
     emit Unstaked(msg.sender, staker.amount);
-  }
-
-  function calculateInSeconds(uint256 time) public pure returns (uint256) {
-    return time * 60 * 60;
-  }
-
-  function getETHUSDPrice() public view returns (uint256) {
-    (, int256 price, , , ) = s_priceFeed.latestRoundData();
-    return uint256(price);
   }
 
   function getMinimumStakingPeriod() external pure returns (uint256) {
