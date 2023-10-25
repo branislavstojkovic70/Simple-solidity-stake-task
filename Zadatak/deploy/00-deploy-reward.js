@@ -12,28 +12,23 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
   const { deployer } = await getNamedAccounts()
   const chainId = network.config.chainId
 
-  const ethUsdPriceFeedAddress = networkConfig[chainId]["ethUsdPriceFeed"]
-  const rewardToken = await ethers.getContract("MvpToken")
-  const stake = await deploy("StakingContract", {
+  const token = await deploy("MvpToken", {
     from: deployer,
-    args: [rewardToken.target, rewardToken.target, ethUsdPriceFeedAddress],
+    args: [],
     log: true,
+    // we need to wait if on a live network so we can verify properly
     waitConfirmations: network.config.blockConfirmations || 1,
   })
-  log(`MVP deployed at ${stake.address}`)
+  log(`MVP deployed at ${token.address}`)
 
   if (
     !developmentChains.includes(network.name) &&
     process.env.ETHERSCAN_API_KEY
   ) {
-    console.log(stake.address)
-    await verify(stake.address, [
-      rewardToken.address,
-      rewardToken.address,
-      ethUsdPriceFeedAddress,
-    ])
+    console.log(token.address)
+    await verify(token.address, [])
   }
   log("--------------------------------------------")
 }
 
-module.exports.tags = ["all", "stake"]
+module.exports.tags = ["all", "token"]

@@ -1,96 +1,148 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.7;
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./PriceConverter.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-error StakingPeriodLowerThanMinimum();
-error StakingPeriodNotPassedError();
-error NotOwner();
-error NotEnoughStaked();
+error Unauthorized();
+error AmountIsZero();
+error MinimumStakingPeriodNotMet();
+error InsufficientStakedBalance();
+error StakingPeriodNotPassed();
 
-/**@title A sample Funding Contract
- * @author Branislav Stojkovic
- * @notice This contract is for creating staking contract with ERC-20 standard reward
- * @dev This implements price feeds as our library
- */
-
-contract StakingContract is ERC20 {
+contract StakingContract {
   using SafeMath for uint256;
   using PriceConverter for uint256;
-  using EnumerableSet for EnumerableSet.AddressSet;
 
-  AggregatorV3Interface private s_priceFeed;
+  address public immutable i_owner;
 
-  uint256 public constant MIN_STAKING_PERIOD = 180 days;
+  modifier onlyOwner() {
+    if (msg.sender != i_owner) revert Unauthorized();
 
-  struct Stake {
-    uint256 amount;
-    uint256 startTime;
-  }
-
-  mapping(address => Stake) public stakers;
-  EnumerableSet.AddressSet private stakerSet;
-
-  event Staked(address indexed staker, uint256 amount, uint256 reward);
-  event Unstaked(address indexed staker, uint256 amount);
-
-  modifier onlyStaker() {
-    if (!stakerSet.contains(msg.sender)) revert NotOwner();
     _;
   }
 
-  constructor(address _priceFeed, uint256 initialSupply)
-    ERC20("MVPWorkShop", "MVP")
-  {
-    _mint(address(this), initialSupply);
-    s_priceFeed = AggregatorV3Interface(_priceFeed);
+  IERC20 public immutable i_sepoliaETH;
+  IERC20 public immutable i_rewardsToken;
+
+  uint256 public duration;
+  uint256 public finishAt;
+  uint256 public updatedAt;
+  uint256 public rewardRate;
+  uint256 public rewardPerTokenStored;
+  uint256 public constant MIN_STAKING_PERIOD_IN_MONTHS = 6;
+  AggregatorV3Interface private ethUsdPriceFeed;
+
+  mapping(address => uint256) public userRewardPerTokenPaid;
+  mapping(address => uint256) public rewards;
+
+  uint256 public totalStaked;
+  mapping(address => uint256) public stakedBalance;
+
+  event Staked(
+    address indexed user,
+    uint256 amount,
+    uint256 stakingPeriodMonths,
+    uint256 reward
+  );
+  event Unstaked(address indexed user, uint256 amount, uint256 reward);
+
+  constructor(
+    address _sepoliaETH,
+    address _rewardsToken,
+    address _ethUsdPriceFeed
+  ) {
+    i_owner = msg.sender;
+    i_sepoliaETH = IERC20(_sepoliaETH);
+    i_rewardsToken = IERC20(_rewardsToken);
+    ethUsdPriceFeed = AggregatorV3Interface(_ethUsdPriceFeed);
   }
 
-  function stake(uint256 stakingPeriod) public payable {
-    stakingPeriod = stakingPeriod.mul(3600); //transfer to seconds
+  modifier updateReward(address _account) {
+    rewardPerTokenStored = rewardPerToken();
+    updatedAt = lastTimeRewardApplicable();
 
-    if (stakingPeriod < MIN_STAKING_PERIOD)
-      revert StakingPeriodLowerThanMinimum();
+    if (_account != address(0)) {
+      rewards[_account] = earned(_account);
+      userRewardPerTokenPaid[_account] = rewardPerTokenStored;
+    }
 
-    uint256 reward = msg.value.getConversionRate(s_priceFeed);
-
-    _transfer(address(this), msg.sender, reward);
-
-    stakers[msg.sender] = Stake(msg.value, block.timestamp);
-    stakerSet.add(msg.sender);
-
-    emit Staked(msg.sender, msg.value, reward);
+    _;
   }
 
-  function unstake(uint256 unstakeAmount) external onlyStaker {
-    Stake memory staker = stakers[msg.sender];
-    if (block.timestamp < staker.startTime.add(MIN_STAKING_PERIOD))
-      revert StakingPeriodNotPassedError();
+  function stake(
+    uint256 _stakingPeriodMonths
+  ) external updateReward(msg.sender) {
+    if (_stakingPeriodMonths < MIN_STAKING_PERIOD_IN_MONTHS)
+      revert MinimumStakingPeriodNotMet();
 
-    if (unstakeAmount < staker.amount) revert NotEnoughStaked();
+    uint256 amount = i_sepoliaETH.balanceOf(msg.sender);
+    if (amount == 0) revert AmountIsZero();
 
-    _transfer(address(this), msg.sender, unstakeAmount);
-    //ovde dodati da on mora da vrati na contract ERC20 samo videti odakle treba preuzeti to
+    i_sepoliaETH.transferFrom(msg.sender, address(this), amount);
 
-    stakerSet.remove(msg.sender);
-    delete stakers[msg.sender];
+    stakedBalance[msg.sender] += amount;
+    totalStaked += amount;
 
-    emit Unstaked(msg.sender, staker.amount);
+    uint256 ethPriceInUSD = amount.getConversionRate(ethUsdPriceFeed);
+    uint256 rewardAmount = ethPriceInUSD / 1e18;
+    rewards[msg.sender] += rewardAmount;
+
+    duration = _stakingPeriodMonths * 30 days;
+    updatedAt = block.timestamp;
+    finishAt = block.timestamp + duration;
+    rewardRate = rewardAmount / duration;
+
+    emit Staked(msg.sender, amount, _stakingPeriodMonths, rewardAmount);
   }
 
-  function getMinimumStakingPeriod() external pure returns (uint256) {
-    return MIN_STAKING_PERIOD;
+  function withdraw(uint256 _amount) external updateReward(msg.sender) {
+    if (_amount == 0) revert AmountIsZero();
+    if (stakedBalance[msg.sender] < _amount) revert InsufficientStakedBalance();
+    if (block.timestamp < finishAt) revert StakingPeriodNotPassed();
+
+    stakedBalance[msg.sender] -= _amount;
+    totalStaked -= _amount;
+
+    i_sepoliaETH.transfer(msg.sender, _amount);
+
+    emit Unstaked(msg.sender, _amount, rewards[msg.sender]);
+    rewards[msg.sender] = 0;
   }
 
-  function getBalanceStaked() external view returns (uint256) {
-    return stakers[msg.sender].amount;
+  function getReward() external updateReward(msg.sender) {
+    uint256 reward = rewards[msg.sender];
+    if (reward > 0) {
+      rewards[msg.sender] = 0;
+      i_rewardsToken.transfer(msg.sender, reward);
+    }
   }
 
-  function getBalance() external view returns (uint256) {
-    return msg.sender.balance;
+  function earned(address _account) public view returns (uint256) {
+    return
+      ((stakedBalance[_account] *
+        (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
+      rewards[_account];
+  }
+
+  function lastTimeRewardApplicable() public view returns (uint256) {
+    return _min(finishAt, block.timestamp);
+  }
+
+  function rewardPerToken() public view returns (uint256) {
+    if (totalStaked == 0) {
+      return rewardPerTokenStored;
+    }
+
+    return
+      rewardPerTokenStored +
+      (rewardRate * (lastTimeRewardApplicable() - updatedAt) * 1e18) /
+      totalStaked;
+  }
+
+  function _min(uint256 x, uint256 y) private pure returns (uint256) {
+    return x <= y ? x : y;
   }
 }

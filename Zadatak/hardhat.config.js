@@ -1,5 +1,7 @@
 require("@nomiclabs/hardhat-waffle")
 require("@nomiclabs/hardhat-etherscan")
+require("@nomiclabs/hardhat-ethers")
+require("@nomicfoundation/hardhat-ethers")
 require("hardhat-deploy")
 require("solidity-coverage")
 require("hardhat-gas-reporter")
@@ -29,8 +31,8 @@ module.exports = {
     compilers: [{ version: "0.8.20" }, { version: "0.6.6" }],
     settings: {
       optimizer: {
-        enabled: true, // Default: false
-        runs: 1000, // Default: 200
+        enabled: true,
+        runs: 1000,
       },
     },
   },
