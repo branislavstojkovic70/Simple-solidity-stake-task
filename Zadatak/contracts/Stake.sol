@@ -34,20 +34,10 @@ contract MvpStaking is ERC20 {
         owner = msg.sender;
     }
 
-    function getPrice() internal view returns (uint256) {
-        (, int256 answer, , , ) = priceFeed.latestRoundData();
-        return uint256(answer * 1e10); // Convert to 18 decimals
-    }
-
-    function getConversionRate(uint256 ethAmount) internal view returns (uint256) {
-        uint256 ethPrice = getPrice();
-        uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1e18;
-        return ethAmountInUsd;
-    }
 
     function stake() external payable {
         if (msg.value == 0) revert Stake_Insufficient_Funds();
-        uint256 ethAmountInUsd = getConversionRate(msg.value);
+        uint256 ethAmountInUsd = PriceConverter.getConversionRate(msg.value);
         _mint(msg.sender, ethAmountInUsd);
         stakes[msg.sender] = StakeInfo({
             amountStaked: ethAmountInUsd,
